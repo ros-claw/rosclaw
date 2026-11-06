@@ -13,6 +13,8 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+from rosclaw.connectors.ros.public_coverage.time_contract import header_age_ok
+
 
 def snapshot_record(sample, roles):
     return {
@@ -22,6 +24,7 @@ def snapshot_record(sample, roles):
         "odom_epoch": sample.odom_epoch,
         "graph_epoch": sample.graph_epoch,
         "native_s": sample.native_s,
+        "native_ns": getattr(sample, "native_ns", None),
         "captured_monotonic_s": sample.captured_monotonic_s,
         "odom_xy": list(sample.odom_xy),
         "map_xy": None if sample.map_xy is None else list(sample.map_xy),
@@ -133,14 +136,15 @@ def validate_archive(payload):
                 raise ValueError("Original capture-relative receive freshness failed")
             header = fact["header_native_s"]
             if source["max_header_age_s"] is None:
-                if header is not None:
+                if header is not None or fact.get("header_native_ns") is not None:
                     raise ValueError("Unexpected source header")
-            elif (
-                header is None
-                or not math.isfinite(header)
-                or not -source["max_header_future_s"]
-                <= native - header
-                <= source["max_header_age_s"]
+            elif not header_age_ok(
+                native,
+                header,
+                source["max_header_future_s"],
+                source["max_header_age_s"],
+                native_ns=sample.get("native_ns"),
+                header_ns=fact.get("header_native_ns"),
             ):
                 raise ValueError("Original native header freshness failed")
 

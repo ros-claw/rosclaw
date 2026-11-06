@@ -171,14 +171,22 @@ async def test_restart_finishes_persisted_cancellation_instead_of_watching_forev
         conn.close()
 
 
-async def test_recovered_subgroup_cleanup_survives_caller_loss_and_shutdown(tmp_path, request):
+@pytest.mark.parametrize("publish_delay_s", [0.0, 0.2])
+async def test_recovered_subgroup_cleanup_survives_caller_loss_and_shutdown(
+    tmp_path, request, publish_delay_s
+):
     conn = _conn(tmp_path)
     _task(conn)
     pid_file = tmp_path / "resistant-child.pid"
+    # A visible filename must contain the whole PID, including under xdist load.
+    # Opening the final path before writing exposed an empty-file race in CI.
     child_code = (
         "import os,signal,time;from pathlib import Path;"
         "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
-        f"Path({str(pid_file)!r}).write_text(str(os.getpid()));time.sleep(30)"
+        f"published=Path({str(pid_file)!r});path=published.with_suffix('.pending');"
+        "output=path.open('w');"
+        f"time.sleep({publish_delay_s!r});output.write(str(os.getpid()));output.close();"
+        "path.replace(published);time.sleep(30)"
     )
     parent_code = (
         "import subprocess,sys,time;"

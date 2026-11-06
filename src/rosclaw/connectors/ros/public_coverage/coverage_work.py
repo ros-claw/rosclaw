@@ -6,7 +6,10 @@ import math
 import numpy as np
 
 from rosclaw.connectors.ros.public_coverage.coverage_paths import densify
-from rosclaw.connectors.ros.public_coverage.coverage_variants import prefix
+from rosclaw.connectors.ros.public_coverage.coverage_variants import (
+    prefix,
+    validate_unissued_prefix,
+)
 
 
 def chunks(path, maximum=3.0):
@@ -217,6 +220,8 @@ def select(
     transit_cost=None,
     bidirectional=False,
     prepare_path=None,
+    continuous_only=False,
+    prepare_candidate=None,
 ):
     """Rank actual remaining brush opportunity, never commanded endpoint count."""
     version = geometry_key(grid)
@@ -245,8 +250,14 @@ def select(
                         raise ValueError(
                             "Prepared work must be finite and retain the original length bound"
                         )
-                # Score, retry and execute the same controller-compatible path.
-                # A whole lane's unexecuted tail cannot pay for a clipped point.
+                if continuous_only and (
+                    len(candidate) < 2
+                    or np.linalg.norm(np.diff(candidate, axis=0), axis=1).sum() < 0.10
+                ):
+                    continue
+                # Budget deferral must witness real eligible unfinished work.
+                # Cleaned, blocked, unsafe, or unreachable candidates cannot
+                # turn ordinary work exhaustion into a budget recovery cause.
                 key = work_key(candidate)
                 if retries is not None and retries.blocked(candidate, robot_xy, now):
                     continue
@@ -255,6 +266,37 @@ def select(
                 gain = ledger.path_gain(candidate)
                 if len(gain) < minimum_cells:
                     continue
+                if prepare_candidate is not None:
+                    transit = (
+                        float(np.linalg.norm(candidate[0] - robot_xy))
+                        if transit_cost is None
+                        else float(transit_cost(candidate[0]))
+                    )
+                    if not math.isfinite(transit):
+                        continue
+                    adapted = prepare_candidate(candidate.copy(), transit)
+                    if adapted is None:
+                        continue
+                    adapted = validate_unissued_prefix(candidate, adapted)
+                    changed = not np.array_equal(candidate, adapted)
+                    candidate = adapted
+                    if changed:
+                        key = work_key(candidate)
+                        if failed.get(key) == version:
+                            continue
+                        # A validated prefix is a subset of the original safe
+                        # path and retains its entry/retry context. Re-score
+                        # its actual gain without repeating geometry work.
+                        gain = ledger.path_gain(candidate)
+                        if len(gain) < minimum_cells:
+                            continue
+                if continuous_only and (
+                    len(candidate) < 2
+                    or np.linalg.norm(np.diff(candidate, axis=0), axis=1).sum() < 0.10
+                ):
+                    continue
+                # Score, retry and execute the same controller-compatible path.
+                # A whole lane's unexecuted tail cannot pay for a clipped point.
                 score = work_score(candidate, len(gain), robot_xy, transit_cost)
                 if score > best_score:
                     best = (candidate, key, version, len(gain))
@@ -276,6 +318,8 @@ def select_phase(
     bidirectional=False,
     maximum=3.0,
     prepare_path=None,
+    continuous_only=False,
+    prepare_candidate=None,
 ):
     """Boundary work must not starve behind diminishing interior opportunities."""
     candidates = []
@@ -294,6 +338,8 @@ def select_phase(
             transit_cost=transit_cost,
             bidirectional=bidirectional,
             prepare_path=prepare_path,
+            continuous_only=continuous_only,
+            prepare_candidate=prepare_candidate,
         )
         if choice is not None:
             candidates.append((phase, choice))

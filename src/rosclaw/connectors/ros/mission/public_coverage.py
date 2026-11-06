@@ -14,8 +14,10 @@ import math
 import re
 import threading
 import time
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -24,9 +26,11 @@ import numpy as np
 from rosclaw.body.schema import EffectiveBody
 from rosclaw.connectors.ros.mission.finite_coverage_evidence import persist_archive, snapshot_record
 from rosclaw.connectors.ros.public_coverage.coverage_paths import prepare_work_path
+from rosclaw.connectors.ros.public_coverage.coverage_variants import validate_unissued_prefix
 from rosclaw.connectors.ros.public_coverage.graph_ledger import IDENTITY, GraphAnchoredCoverage
 from rosclaw.connectors.ros.public_coverage.grid import Grid
-from rosclaw.connectors.ros.public_coverage.online import propose_transfer
+from rosclaw.connectors.ros.public_coverage.online import TransferUnavailableError, propose_transfer
+from rosclaw.connectors.ros.public_coverage.time_contract import header_age_ok
 from rosclaw.kernel import (
     ActionEnvelope,
     ActionExecutionResult,
@@ -36,6 +40,36 @@ from rosclaw.kernel import (
     ExecutionMode,
     OrphanPolicy,
 )
+
+
+class PrimitiveExecutionError(RuntimeError):
+    """Preserve the original primitive failure through the parent FAILED receipt.
+
+    Diagnostic facts never imply termination, stopping, or permission to retry.
+    """
+
+    def __init__(self, capability, primitive_id, result):
+        # Keep the frozen receipt projection expression unchanged.
+        self.failure_detail = dict(  # noqa: C408
+            code="PUBLIC_PRIMITIVE_FAILED",
+            source="shared_public_coverage.primitive",
+            capability_id=capability,
+            primitive_id=primitive_id,
+            original_primitive_state=result.final_state.value,
+            original_errors=list(result.errors),
+            original_dispatch=dict(result.dispatch_result),
+            original_verification=dict(result.verification_result or {}),
+            allowed_read_only_followups=[
+                "get_action_status",
+                "get_runtime_status",
+                "get_body_state",
+            ],
+            recovery_authorized=False,
+        )
+        causes = ", ".join(
+            str(x.get("code", "UNKNOWN")) + ": " + str(x.get("message", "")) for x in result.errors
+        )
+        super().__init__("Original primitive failed: " + (causes or "UNKNOWN original cause"))
 
 
 @dataclass(frozen=True)
@@ -266,6 +300,7 @@ class CoverageSourceFact:
     received_monotonic_s: float
     child_frame_id: str | None = None
     publisher_gid: str | None = None
+    header_native_ns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +324,7 @@ class PublicCoverageSnapshot:
     sources: tuple[CoverageSourceFact, ...]
     grid: Grid | None
     work_source_fault: str | None = None
+    native_ns: int | None = None
 
 
 class PublicCoveragePort(Protocol):
@@ -325,8 +361,39 @@ class _KnownLivePathCancellationError(RuntimeError):
         super().__init__("Original native live-path cancellation is terminal")
 
 
+class _WorkEntryProgressError(RuntimeError):
+    """A bounded entry candidate, after verified terminal prefixes, is deferred."""
+
+    def __init__(self, reason, path, prefixes, snapshot):
+        super().__init__("Observed work-entry candidate deferred: " + reason)
+        self.public_snapshot = snapshot
+        self.diagnostics = {
+            "reason": reason,
+            "requested_target_xy": np.asarray(path[0], float).tolist(),
+            "selected_work_path_xy": np.asarray(path, float).tolist(),
+            "prefixes": list(prefixes),
+            "native_prefixes_dispatched": True,
+            "all_original_prefix_results_verified": True,
+            "current_native_motion_settled": snapshot.native_motion_settled,
+            "candidate_completed": False,
+        }
+
+
 class _PostEntryGeometryChangeError(ValueError):
-    """A freshly observed path rejection before brush enable, never a source failure."""
+    """A known undispatched geometric rejection, never a source failure."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        phase="before_brush_enable",
+        cleaner_enabled=False,
+        rejection=None,
+    ):
+        super().__init__(message)
+        self.phase = phase
+        self.cleaner_enabled = cleaner_enabled
+        self.rejection = rejection
 
 
 class PublicCoverageExecutor:
@@ -359,6 +426,7 @@ class PublicCoverageExecutor:
         self._evidence_started = None
         self._evidence_samples = []
         self._primitive_evidence = []
+        self._last_completed_primitive = None
         bind_observations = getattr(port, "bind_observation_service", None)
         if callable(bind_observations):
             bind_observations(self._service_observations)
@@ -424,14 +492,17 @@ class PublicCoverageExecutor:
             ):
                 raise ValueError("Missing or mismatched public source: " + source.role)
             header_ok = (
-                fact.header_native_s is None
+                fact.header_native_s is None and fact.header_native_ns is None
                 if source.max_header_age_s is None
                 else (
-                    fact.header_native_s is not None
-                    and math.isfinite(fact.header_native_s)
-                    and -source.max_header_future_s
-                    <= snapshot.native_s - fact.header_native_s
-                    <= source.max_header_age_s
+                    header_age_ok(
+                        snapshot.native_s,
+                        fact.header_native_s,
+                        source.max_header_future_s,
+                        source.max_header_age_s,
+                        native_ns=snapshot.native_ns,
+                        header_ns=fact.header_native_ns,
+                    )
                 )
             )
             if (
@@ -554,8 +625,7 @@ class PublicCoverageExecutor:
             )
         self.ledger.sync()
 
-    def _primitive(self, capability, arguments):
-        assert self._parent is not None
+    def _guard_primitive(self, capability, arguments):
         cleanup = capability == "cleaning.disable"
         sample = self._guard(work=not cleanup)
         if capability == "navigation.follow_path":
@@ -565,17 +635,64 @@ class PublicCoverageExecutor:
                 or points.shape[1] != 2
                 or not 2 <= len(points) <= 1024
                 or not np.isfinite(points).all()
-                or np.linalg.norm(points[0] - sample.map_xy) > 0.10
                 or np.linalg.norm(np.diff(points, axis=0), axis=1).sum() > 3.0 + 1e-9
-                or not sample.grid.motion_path_safe(points)
             ):
                 raise ValueError("Current complete footprint rejects bounded work path")
-        started = time.monotonic()
+            entry_distance = float(np.linalg.norm(points[0] - sample.map_xy))
+            rejection = (
+                "entry_outside_original_0.10m_tolerance"
+                if entry_distance > 0.10
+                else "current_complete_footprint_rejection"
+                if not sample.grid.motion_path_safe(points)
+                else None
+            )
+            if rejection is not None:
+                # This exact path has not reached port.execute/send_goal_async.
+                # _guard requires all original sources/energy/identity and a
+                # known settled native owner. Stop/off and revalidation still
+                # precede another finite attempt under the same parent. The
+                # rejected entry/path is NEVER rebased or dispatched as-is.
+                raise _PostEntryGeometryChangeError(
+                    "Fresh geometry rejects work before native dispatch: " + rejection,
+                    phase="before_native_path_dispatch",
+                    cleaner_enabled=sample.cleaner,
+                    rejection={
+                        "reason": rejection,
+                        "path_xy": points.tolist(),
+                        "map_xy": list(sample.map_xy),
+                        "native_s": sample.native_s,
+                        "captured_monotonic_s": sample.captured_monotonic_s,
+                        "entry_distance_m": entry_distance,
+                        "entry_limit_m": 0.10,
+                    },
+                )
+        return sample
+
+    def _primitive(self, capability, arguments, *, before_execute=None):
+        assert self._parent is not None
+        cleanup = capability == "cleaning.disable"
+        # A diagnostic callback receives its own copy, never mutable dispatch input.
+        arguments = deepcopy(arguments)
+        sample = self._guard_primitive(capability, arguments)
         self._sequence += 1
         primitive_id = (
             "pcov_"
             + hashlib.sha256(f"{self._parent.action_id}:{self._sequence}".encode()).hexdigest()
         )
+        record_intent = getattr(self.port, "record_primitive_intent", None)
+        if record_intent is not None:
+            record_intent(
+                sample, capability, deepcopy(arguments), self._parent, primitive_id, self._deadline
+            )
+        # Persistence can invalidate every earlier source/identity/native/path fact.
+        # Re-price using the same parent deadline, then recheck after that callback too.
+        sample = self._guard_primitive(capability, arguments)
+        if before_execute is not None:
+            before_execute(sample)
+            sample = self._guard_primitive(capability, arguments)
+        started = time.monotonic()
+        if self.stopping.is_set() or started >= self._deadline:
+            raise TimeoutError("Original deadline or stop changed during intent persistence")
         result = self.port.execute(
             capability,
             arguments,
@@ -584,6 +701,9 @@ class PublicCoverageExecutor:
             stop_requested=self.stopping,
             deadline_monotonic=self._deadline,
         )
+        record_outcome = getattr(self.port, "record_primitive_outcome", None)
+        if record_outcome is not None:
+            record_outcome(self._parent, primitive_id, result)
         if self.stopping.is_set():
             raise RuntimeError("Primitive result cannot revive a stopped coverage action")
         if (
@@ -648,7 +768,7 @@ class PublicCoverageExecutor:
                 if after.native_motion_settled is True:
                     record_primitive(after, {"odom", "cleaner"})
                     raise _KnownLivePathCancellationError(primitive_id, dispatch)
-            raise RuntimeError("Internal primitive did not produce a verified original terminal")
+            raise PrimitiveExecutionError(capability, primitive_id, result)
         self._record()
         after = self._validate(
             self.port.snapshot(work=not cleanup), work=not cleanup, after=started
@@ -661,42 +781,172 @@ class PublicCoverageExecutor:
             raise RuntimeError("Actual brush state differs from requested phase")
         if (
             capability == "navigation.follow_path"
-            and np.linalg.norm(np.asarray(after.map_xy) - points[-1]) > 0.05
+            and np.linalg.norm(np.asarray(after.map_xy) - np.asarray(arguments["path_xy"])[-1])
+            > 0.05
         ):
             raise RuntimeError("Actual work endpoint exceeds original tracking limit")
         record_primitive(
             after, {"odom", "cleaner"} if cleanup else {s.role for s in self.binding.sources}
         )
+        self._last_completed_primitive = {
+            "primitive_id": primitive_id,
+            "parent_action_id": self._parent.action_id,
+            "dispatch": dict(result.dispatch_result),
+            "verification": dict(result.verification_result),
+        }
         return after
 
-    def _execute_work(self, work):
+    def _execute_work(self, work, *, require_continuous_stroke=False):
         path = np.asarray(work["path_xy"], float)
         stalled = 0
+        prefixes = []
+        observed_ends = []
         for _ in range(60):
             current = self._guard()
             if np.linalg.norm(np.asarray(current.map_xy) - path[0]) <= 0.05:
                 break
-            proposal = propose_transfer(current.grid, current.map_xy, path[0])
-            moved = self._primitive("navigation.follow_path", {"path_xy": list(proposal.prefix_xy)})
-            progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
+            try:
+                proposal = propose_transfer(current.grid, current.map_xy, path[0])
+            except TransferUnavailableError as error:
+                # Exact held public inputs; no motion was sent for this proposal.
+                error.public_snapshot = current
+                raise
+            prepare_budget = getattr(self.port, "prepare_finite_budget_candidate", None)
+            if prepare_budget is not None:
+                adapted = prepare_budget(
+                    path,
+                    proposal.intent_length_m,
+                    self._parent,
+                    self._deadline,
+                    exact_transfer=True,
+                )
+                if adapted is None:
+                    self.port.refuse_deferred_finite_work(self._parent, self._deadline, current)
+                path = validate_unissued_prefix(path, adapted)
+                if (
+                    require_continuous_stroke
+                    and np.linalg.norm(np.diff(path, axis=0), axis=1).sum() < 0.10
+                ):
+                    raise ValueError("Original continuous stroke requires at least 0.10m")
+            admit = getattr(self.port, "admit_finite_budget", None)
+            if admit is not None:
+                admit(
+                    "before_transfer",
+                    current,
+                    self._parent,
+                    self._deadline,
+                    path=path,
+                    transfer_m=proposal.intent_length_m,
+                )
+            moved = self._primitive(
+                "navigation.follow_path",
+                {"path_xy": list(proposal.prefix_xy)},
+                before_execute=None
+                if admit is None
+                else partial(
+                    admit,
+                    "before_transfer",
+                    parent=self._parent,
+                    deadline=self._deadline,
+                    path=path.copy(),
+                    transfer_m=proposal.intent_length_m,
+                ),
+            )
+            target_progress = np.linalg.norm(np.asarray(current.map_xy) - path[0]) - np.linalg.norm(
                 np.asarray(moved.map_xy) - path[0]
+            )
+            # A safe route around an obstacle can initially move AWAY from the
+            # final entry. Measure actual progress along the immutable issued
+            # prefix, corroborated by continuous original odometry. A map-only
+            # correction or merely returning a successful goal is not motion.
+            direction = np.asarray(proposal.prefix_xy[-1]) - proposal.prefix_xy[0]
+            length = float(np.linalg.norm(direction))
+            projected = float(np.dot(np.asarray(moved.map_xy) - current.map_xy, direction) / length)
+            odom_translation = float(np.linalg.norm(np.asarray(moved.odom_xy) - current.odom_xy))
+            progress = min(projected, odom_translation)
+            prefixes.append(
+                {
+                    "prefix_xy": [list(point) for point in proposal.prefix_xy],
+                    "requested_target_xy": list(proposal.requested_target_xy),
+                    "selected_target_xy": list(proposal.selected_target_xy),
+                    "intent_source": proposal.intent_source,
+                    "intent_length_m": proposal.intent_length_m,
+                    "target_shift_m": proposal.target_shift_m,
+                    "before": snapshot_record(current, {s.role for s in self.binding.sources}),
+                    "after": snapshot_record(moved, {s.role for s in self.binding.sources}),
+                    "original_primitive": self._last_completed_primitive,
+                    "straight_line_target_progress_m": float(target_progress),
+                    "observed_prefix_projection_m": projected,
+                    "observed_odom_translation_m": odom_translation,
+                    "corroborated_progress_m": progress,
+                }
             )
             stalled = 0 if progress >= 0.05 else stalled + 1
             if stalled >= 3:
-                raise RuntimeError("Three work-entry prefixes without observed target progress")
+                raise _WorkEntryProgressError(
+                    "three_prefixes_without_observed_motion", path, prefixes, moved
+                )
+            # Replanning must not turn real back-and-forth travel into progress
+            # forever. Three visits to one observed stop defer this candidate;
+            # the original sixty-prefix, parent-attempt and deadline bounds run.
+            if (
+                sum(
+                    np.linalg.norm(np.asarray(point) - moved.odom_xy) <= 0.05
+                    for point in observed_ends
+                )
+                >= 2
+            ):
+                raise _WorkEntryProgressError(
+                    "repeated_observed_entry_cycle", path, prefixes, moved
+                )
+            observed_ends.append(moved.odom_xy)
         else:
-            raise RuntimeError("Finite public work-entry transfer exhausted")
+            raise _WorkEntryProgressError(
+                "original_entry_prefix_bound_exhausted", path, prefixes, moved
+            )
         current = self._guard()
         if not current.grid.motion_path_safe(path):
             raise _PostEntryGeometryChangeError("Fresh post-entry geometry rejects selected work")
+        is_stroke = bool(
+            len(path) > 1 and np.linalg.norm(np.diff(path, axis=0), axis=1).sum() >= 0.10
+        )
+        if require_continuous_stroke and not is_stroke:
+            raise ValueError("Original continuous stroke requires at least 0.10m")
         before = len(self.ledger.anchor.cleaned)
-        self._primitive("cleaning.enable", {})
+        admit = getattr(self.port, "admit_finite_budget", None)
+        if admit is not None:
+            admit("before_brush_enable", current, self._parent, self._deadline, path=path)
+        self._primitive(
+            "cleaning.enable",
+            {},
+            before_execute=None
+            if admit is None
+            else partial(
+                admit,
+                "before_brush_enable",
+                parent=self._parent,
+                deadline=self._deadline,
+                path=path.copy(),
+            ),
+        )
         if len(path) > 1:
-            self._primitive("navigation.follow_path", {"path_xy": path.tolist()})
+            self._primitive(
+                "navigation.follow_path",
+                {"path_xy": path.tolist()},
+                before_execute=None
+                if admit is None
+                else partial(
+                    admit,
+                    "before_brush_path_send",
+                    parent=self._parent,
+                    deadline=self._deadline,
+                    path=path.copy(),
+                ),
+            )
         self._primitive("cleaning.disable", {})
         if len(self.ledger.anchor.cleaned) <= before:
             raise RuntimeError("No actual public brush evidence for completed work")
-        return len(path) > 1
+        return is_stroke
 
     def _observe_replanning_boundary(self, work):
         # This is not an E-stop reset. Owner loss/unknown native results never
@@ -717,16 +967,129 @@ class PublicCoverageExecutor:
         )
         return stopped
 
-    def _recover_post_entry_geometry(self, work):
+    def _recover_post_entry_geometry(self, work, rejected=None):
         stopped = self._observe_replanning_boundary(work)
         self._entry_recoveries.append(
             {
-                "reason": "fresh_post_entry_geometry_rejected_before_brush_enable",
+                "reason": "fresh_path_geometry_rejected_before_native_dispatch"
+                if getattr(rejected, "phase", None) == "before_native_path_dispatch"
+                else "fresh_post_entry_geometry_rejected_before_brush_enable",
+                "rejection_phase": getattr(rejected, "phase", "before_brush_enable"),
+                "cleaner_enabled_at_rejection": getattr(rejected, "cleaner_enabled", False),
+                "native_goal_dispatched": False,
+                "dispatch_scope": "this rejected candidate path only",
+                "rejected_public_path": getattr(rejected, "rejection", None),
                 "fresh_stopped_off": True,
                 "original_native_terminal_known": True,
                 "original_deadline_preserved": True,
                 "replayed_native_goal": False,
                 "observed_native_s": stopped.native_s,
+                "execution_credit": "no completion credit for rejected work",
+            }
+        )
+
+    def _transfer_failure_detail(self, rejected, stop):
+        detail = dict(getattr(rejected, "diagnostics", {}))
+        detail.update(
+            native_goal_dispatched=False,
+            dispatch_scope="this transfer proposal only",
+            stop=stop,
+            execution_credit="none for rejected proposal",
+        )
+        recorder = getattr(self.port, "record_transfer_failure", None)
+        if recorder is not None:
+            try:
+                detail["artifact"] = recorder(rejected, stop, self._parent, self._deadline)
+            except Exception as error:
+                detail["artifact_error"] = type(error).__name__
+        return detail
+
+    def _entry_progress_failure_detail(self, rejected, stop):
+        # Full source facts and held maps belong in the durable diagnostic
+        # artifact, not an unbounded model/tool payload. No evidence is rebased.
+        detail = {key: value for key, value in rejected.diagnostics.items() if key != "prefixes"}
+        detail.update(stop=stop, execution_credit="none for deferred candidate")
+        detail["prefixes"] = [
+            {
+                "primitive_id": row["original_primitive"]["primitive_id"],
+                "original_native_goal_identity": row["original_primitive"]["dispatch"].get(
+                    "original_native_goal_identity"
+                ),
+                "before_native_s": row["before"]["native_s"],
+                "after_native_s": row["after"]["native_s"],
+                **{key: value for key, value in row.items() if key.endswith("_m")},
+            }
+            for row in rejected.diagnostics["prefixes"]
+        ]
+        recorder = getattr(self.port, "record_work_entry_failure", None)
+        if recorder is not None:
+            try:
+                detail["artifact"] = recorder(rejected, stop, self._parent, self._deadline)
+            except Exception as error:
+                detail["artifact_error"] = type(error).__name__
+        return detail
+
+    def _recover_entry_progress(self, work, rejected):
+        try:
+            stopped = self._observe_replanning_boundary(work)
+        except Exception as error:
+            error.entry_progress_failure = rejected
+            raise
+        self._entry_recoveries.append(
+            {
+                "reason": "observed_entry_progress_candidate_deferred",
+                "entry_progress_failure": self._entry_progress_failure_detail(
+                    rejected,
+                    {
+                        "physical_stop_observed": True,
+                        "original_native_terminal_known": True,
+                        "observed_native_s": stopped.native_s,
+                    },
+                ),
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "execution_credit": "no completion credit for deferred entry",
+            }
+        )
+
+    def _recover_transfer_candidate(self, work, rejected):
+        # Only explicit geometry failures before native dispatch are eligible.
+        # Invalid inputs, physical pose, stale sources and unknown results never
+        # become this permission. Parent lease/deadline and work attempts run.
+        if rejected.diagnostics.get("reason") not in {
+            "target_missing_within_original_shift_limit",
+            "target_not_safe",
+            "start_cannot_attach_safe_grid",
+            "no_legal_target_attachment",
+            "target_attachments_exhausted",
+            "global_route_found_local_prefix_rejected",
+        }:
+            raise rejected
+        try:
+            stopped = self._observe_replanning_boundary(work)
+        except Exception as error:
+            # A failed stop/terminal barrier must retain the original planning
+            # rejection too. The outer handler stops first, then persists it.
+            error.transfer_failure = rejected
+            raise
+        detail = self._transfer_failure_detail(
+            rejected,
+            {
+                "physical_stop_observed": True,
+                "original_native_terminal_known": True,
+                "observed_native_s": stopped.native_s,
+            },
+        )
+        self._entry_recoveries.append(
+            {
+                "reason": "undispatched_transfer_candidate_rejected",
+                "rejected_transfer": detail,
+                "fresh_stopped_off": True,
+                "original_native_terminal_known": True,
+                "original_deadline_preserved": True,
+                "native_goal_dispatched": False,
+                "replayed_native_goal": False,
                 "execution_credit": "no completion credit for rejected work",
             }
         )
@@ -822,12 +1185,24 @@ class PublicCoverageExecutor:
             self._evidence_started = time.monotonic()
             self._evidence_samples = []
             self._primitive_evidence = []
+            self._last_completed_primitive = None
             initial = self._guard()
             self._evidence_started = initial.captured_monotonic_s
             self._primitive("cleaning.disable", {})
             for _ in range(maximum):
                 current = self._guard()
                 self._record()
+                admit = getattr(self.port, "admit_finite_budget", None)
+                if admit is not None:
+                    admit("before_replanning", current, self._parent, self._deadline)
+                candidate_options = {}
+                prepare_budget = getattr(self.port, "prepare_finite_budget_candidate", None)
+                if prepare_budget is not None:
+                    self.port.begin_finite_budget_selection(self._parent)
+                    # next_work consumes this callback synchronously in this iteration.
+                    candidate_options["prepare_candidate"] = lambda path, transit: prepare_budget(  # noqa: B023
+                        path, transit, self._parent, self._deadline, exact_transfer=False
+                    )
                 work = self.ledger.next_work(
                     current.grid,
                     current.map_xy,
@@ -835,16 +1210,33 @@ class PublicCoverageExecutor:
                     now=current.native_s,
                     prepare_path=prepare_work_path,
                     service=self._planning_service,
+                    require_continuous_stroke=strokes < minimum_strokes,
+                    **candidate_options,
                 )
+                record_work = getattr(self.port, "record_public_work", None)
+                if record_work is not None:
+                    record_work(current, work, self._parent, self._deadline)
                 if work["kind"] == "NO_CURRENT_OBSERVED_WORK":
+                    if prepare_budget is not None:
+                        self.port.refuse_deferred_finite_work(
+                            self._parent, self._deadline, current, only_if_deferred=True
+                        )
                     break
                 try:
-                    stroke = self._execute_work(work)
-                except _PostEntryGeometryChangeError:
-                    self._recover_post_entry_geometry(work)
+                    stroke = self._execute_work(
+                        work, require_continuous_stroke=strokes < minimum_strokes
+                    )
+                except _PostEntryGeometryChangeError as rejected:
+                    self._recover_post_entry_geometry(work, rejected)
                     continue
                 except _KnownLivePathCancellationError as cancelled:
                     self._recover_observed_live_path(work, cancelled)
+                    continue
+                except TransferUnavailableError as rejected:
+                    self._recover_transfer_candidate(work, rejected)
+                    continue
+                except _WorkEntryProgressError as rejected:
+                    self._recover_entry_progress(work, rejected)
                     continue
                 completed += 1
                 if stroke:
@@ -906,11 +1298,38 @@ class PublicCoverageExecutor:
             )
         except Exception as exc:
             stop = self.emergency_stop()
+            entry_failure = (
+                exc
+                if isinstance(exc, _WorkEntryProgressError)
+                else getattr(exc, "entry_progress_failure", None)
+            )
+            if entry_failure is not None:
+                self._entry_recoveries.append(
+                    {
+                        "reason": "entry_progress_failure_stopped_without_resume",
+                        "entry_progress_failure": self._entry_progress_failure_detail(
+                            entry_failure, stop
+                        ),
+                    }
+                )
+            transfer_failure = (
+                exc
+                if isinstance(exc, TransferUnavailableError)
+                else getattr(exc, "transfer_failure", None)
+            )
+            if transfer_failure is not None:
+                self._entry_recoveries.append(
+                    {
+                        "reason": "transfer_failure_stopped_without_resume",
+                        "rejected_transfer": self._transfer_failure_detail(transfer_failure, stop),
+                    }
+                )
             return self._result(
                 ActionState.FAILED,
                 completed=completed,
                 strokes=strokes,
                 error=str(exc),
+                failure_detail=getattr(exc, "failure_detail", None),
                 stop=stop,
                 recoveries=self._recoveries,
                 entry_recoveries=self._entry_recoveries,
@@ -926,6 +1345,7 @@ class PublicCoverageExecutor:
         completed=0,
         strokes=0,
         error=None,
+        failure_detail=None,
         stop=None,
         recoveries=(),
         entry_recoveries=(),
@@ -960,7 +1380,16 @@ class PublicCoverageExecutor:
                 "judge_read": False,
                 "stop": stop,
                 "task_evidence": task_evidence,
+                "failure_detail": failure_detail,
             },
             artifacts=[] if task_evidence is None else [task_evidence["uri"]],
-            errors=[] if error is None else [{"code": "PUBLIC_COVERAGE_FAILED", "message": error}],
+            errors=[]
+            if error is None
+            else [
+                {
+                    "code": "PUBLIC_COVERAGE_FAILED",
+                    "message": error,
+                    **({"failure_detail": failure_detail} if failure_detail is not None else {}),
+                }
+            ],
         )

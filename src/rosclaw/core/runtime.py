@@ -97,9 +97,7 @@ class RuntimeConfig:
         default_factory=lambda: os.environ.get("ROSCLAW_KNOWLEDGE_MODE", "disabled")
     )
     know_url: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_KNOW_URL"))
-    know_api_key: str | None = field(
-        default_factory=lambda: os.environ.get("ROSCLAW_KNOW_API_KEY")
-    )
+    know_api_key: str | None = field(default_factory=lambda: os.environ.get("ROSCLAW_KNOW_API_KEY"))
     knowledge_timeout: float = 15.0
     know_store_mode: str = field(
         default_factory=lambda: os.environ.get("ROSCLAW_KNOW_STORE_MODE", "embedded")
@@ -284,6 +282,7 @@ class Runtime(LifecycleMixin):
         self._mcp_drivers: dict[str, Any] = {}
         self._emergency_stop_receipts: dict[str, Any] = {}
         self._emergency_stop_latched = False
+        self._emergency_stop_generation = 0
 
         # Provider layer
         self._provider_registry: Any | None = None
@@ -952,9 +951,7 @@ class Runtime(LifecycleMixin):
                         MemoryRetrievalProjectionCommitter,
                     )
 
-                    native_path = retrieval_cfg.path or str(
-                        workspace_home / "data" / "seekdb"
-                    )
+                    native_path = retrieval_cfg.path or str(workspace_home / "data" / "seekdb")
                     ctx.retrieval_store = SeekDBEmbeddedRetrievalStore(path=native_path)
                     projection_outbox = ctx.outbox
                     if projection_outbox is not None:
@@ -1463,10 +1460,7 @@ class Runtime(LifecycleMixin):
 
             failed = status != "SUCCESS"
             memory_type = MemoryType.FAILURE.value if failed else MemoryType.EPISODIC.value
-            title = (
-                f"Critic: {skill_name} {status}"
-                + (f" — {reason}" if failed and reason else "")
-            )
+            title = f"Critic: {skill_name} {status}" + (f" — {reason}" if failed and reason else "")
             document = (
                 f"Critic judgment for skill '{skill_name}' (robot {self.config.robot_id}): "
                 f"status={status} reward={reward}."
@@ -1549,6 +1543,7 @@ class Runtime(LifecycleMixin):
                 if callable(getattr(driver, "emergency_stop", None))
             )
             self._emergency_stop_latched = True
+            self._emergency_stop_generation += 1
             self.event_bus.publish(
                 Event(
                     topic="robot.emergency_stop",
@@ -1796,6 +1791,11 @@ class Runtime(LifecycleMixin):
         """Report whether the Runtime has latched an emergency stop."""
 
         return self._emergency_stop_latched
+
+    @property
+    def emergency_stop_generation(self) -> int:
+        """Increment before each distinct stop fanout; never a resume token."""
+        return self._emergency_stop_generation
 
     def submit_action(self, action: Any) -> Any:
         """Submit one canonical ActionEnvelope through the action gateway."""

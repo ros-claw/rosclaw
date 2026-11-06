@@ -78,13 +78,29 @@ class RouteCosts:
 
     def path(self, target, service=None):
         """A* on observed centers, checking the exact swept footprint per edge."""
+        self.last_path_diagnostics = detail = {
+            "reason": "search_started",
+            "candidate_count": 0,
+            "expanded": 0,
+            "fallback_attachment_used": False,
+            "fallback_start_attachment_used": False,
+            "legal_start_attachment_count": None,
+            "start_attachment_search_complete": False,
+        }
         target = np.asarray(target, float)
         grid = self.grid
-        if self.seed is None or target.shape != (2,) or not np.isfinite(target).all():
+        if target.shape != (2,) or not np.isfinite(target).all():
+            detail["reason"] = "invalid_target"
+            return None
+        detail["requested_target_xy"] = target.tolist()
+        if self.seed is None:
+            detail["reason"] = "start_cannot_attach_safe_grid"
             return None
         if not grid.safe_pose(target):
+            detail["reason"] = "target_not_safe"
             return None
         if grid.motion_path_safe([self.robot_xy, target]):
+            detail["reason"] = "direct_route_found"
             return np.asarray([self.robot_xy, target])
         candidates = []
         cy, cx = grid.cell(target)
@@ -98,19 +114,76 @@ class RouteCosts:
                 if offset <= 0.10 and grid.safe_segment(grid.xy(cell), target):
                     candidates.append((self.distance[cell] + offset, cell))
         if not candidates:
+            detail["reason"] = "no_legal_target_attachment"
             return None
+        detail["candidate_count"] = len(candidates)
+        detail["candidate_cells"] = [[int(v) for v in cell] for _, cell in sorted(candidates)]
         goal = min(candidates)[1]
         costs = {self.seed: 0.0}
         parent = {}
         queue = [(0.0, 0.0, self.seed)]
+        roots = {self.seed}
+        starts_checked = False
         expanded = 0
-        while queue:
+        while queue or not starts_checked:
+            if not queue:
+                # Preserve the original preferred start/target when possible.
+                # An exhausted exact component can still reach another legal
+                # target attachment; try those before introducing new roots.
+                reachable = [
+                    (costs[cell] + float(np.linalg.norm(grid.xy(cell) - target)), cell)
+                    for _, cell in candidates
+                    if cell in costs
+                ]
+                if reachable:
+                    goal = min(reachable)[1]
+                    detail["fallback_attachment_used"] = True
+                    break
+                starts_checked = True
+                if service:
+                    service()
+                sy, sx = grid.cell(self.robot_xy)
+                inspected = 0
+                legal = 0
+                for y in range(max(0, sy - radius), min(grid.reachable.shape[0], sy + radius + 1)):
+                    for x in range(
+                        max(0, sx - radius), min(grid.reachable.shape[1], sx + radius + 1)
+                    ):
+                        inspected += 1
+                        if service and inspected % 128 == 0:
+                            service()
+                        cell = (y, x)
+                        if not grid.reachable[cell]:
+                            continue
+                        point = grid.xy(cell)
+                        offset = float(np.linalg.norm(point - self.robot_xy))
+                        if offset > 0.10 + 1e-12 or not grid.motion_path_safe(
+                            [self.robot_xy, point]
+                        ):
+                            continue
+                        legal += 1
+                        if cell in costs:
+                            continue
+                        roots.add(cell)
+                        costs[cell] = offset
+                        heuristic = float(np.linalg.norm(point - grid.xy(goal)))
+                        heapq.heappush(queue, (offset + heuristic, offset, cell))
+                detail["legal_start_attachment_count"] = legal
+                detail["start_attachment_search_complete"] = True
+                detail["fallback_start_attachment_used"] = bool(queue)
+                if not queue:
+                    # Keep the existing bounded-geometry failure category and
+                    # its Runtime stop barrier; this is no new recovery cause.
+                    detail["reason"] = "target_attachments_exhausted"
+                    detail["search_scope"] = "all_legal_start_and_target_attachments"
+                    return None
             _, cost, cell = heapq.heappop(queue)
             if cost != costs.get(cell):
                 continue
             if cell == goal:
                 break
             expanded += 1
+            detail["expanded"] = expanded
             if service and expanded % 128 == 0:
                 service()
             y, x = cell
@@ -128,10 +201,27 @@ class RouteCosts:
                 heuristic = float(np.linalg.norm(grid.xy(neighbor) - grid.xy(goal)))
                 heapq.heappush(queue, (candidate + heuristic, candidate, neighbor))
         else:
-            return None
+            # The ordering distance uses a coarser graph than the exact edges
+            # above. An unreachable preferred attachment does not establish
+            # that every attachment to this unchanged target is unreachable.
+            # This search has already exhausted its finite exact component;
+            # reuse its costs/parents without a second search or extra budget.
+            reachable = [
+                (costs[cell] + float(np.linalg.norm(grid.xy(cell) - target)), cell)
+                for _, cell in candidates
+                if cell in costs
+            ]
+            if not reachable:
+                detail["reason"] = "target_attachments_exhausted"
+                detail["search_scope"] = "all_legal_start_and_target_attachments"
+                return None
+            goal = min(reachable)[1]
+            detail["fallback_attachment_used"] = True
+        detail["selected_attachment_cell"] = [int(v) for v in goal]
         cells = [goal]
-        while cells[-1] != self.seed:
+        while cells[-1] not in roots:
             cells.append(parent[cells[-1]])
+        detail["selected_start_attachment_cell"] = [int(v) for v in cells[-1]]
         raw = np.vstack([self.robot_xy, [grid.xy(c) for c in cells[::-1]], target])
         # Preserve the existing <=10 cm physical-safe prefix when tracking
         # consumed the planning margin; shorten only safe later spans.
@@ -150,11 +240,16 @@ class RouteCosts:
                 None,
             )
             if finish is None:
+                detail["reason"] = "shortcut_revalidation_rejected"
                 return None
             short.append(raw[finish])
             index = finish
         result = np.asarray(short)
-        return result if grid.motion_path_safe(result) else None
+        if not grid.motion_path_safe(result):
+            detail["reason"] = "final_path_revalidation_rejected"
+            return None
+        detail["reason"] = "route_found"
+        return result
 
     def attachment_paths(self, global_route, *, maximum_candidates=48, service=None):
         """Yield bounded live-safe routes joining the same global intent.

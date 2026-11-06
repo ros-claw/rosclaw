@@ -29,6 +29,30 @@ def prefix(path, maximum):
     return np.asarray(result)
 
 
+def validate_unissued_prefix(original, adapted):
+    """A budget callback may shorten only the original not-yet-issued arc."""
+    original, adapted = np.asarray(original, float), np.asarray(adapted, float)
+    if (
+        original.ndim != 2
+        or original.shape[1] != 2
+        or len(original) < 2
+        or adapted.ndim != 2
+        or adapted.shape[1] != 2
+        or not 2 <= len(adapted) <= 1024
+        or not np.isfinite(original).all()
+        or not np.isfinite(adapted).all()
+    ):
+        raise ValueError("Candidate admission must retain an original unissued prefix")
+    original_length = float(np.linalg.norm(np.diff(original, axis=0), axis=1).sum())
+    length = float(np.linalg.norm(np.diff(adapted, axis=0), axis=1).sum())
+    if not 0 < length <= original_length + 1e-9:
+        raise ValueError("Candidate admission must retain an original unissued prefix")
+    expected = prefix(original, length)
+    if adapted.shape != expected.shape or not np.allclose(adapted, expected, rtol=0, atol=1e-9):
+        raise ValueError("Candidate admission must retain an original unissued prefix")
+    return adapted.copy()
+
+
 def room_sweeps(grid, robot_xy, spacing=0.25):
     """Sweep along each room's long axis and join only footprint-safe turns.
 

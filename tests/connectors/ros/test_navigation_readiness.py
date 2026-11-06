@@ -11,7 +11,8 @@ from tests.connectors.ros.test_navigation_body_workspace import NOW
 from tests.connectors.ros.test_sim_source_binding import fixture, pack
 
 
-def setup(tmp_path):
+def navigation_fixture(tmp_path):
+    """Build fixture data; a module-level setup name is a pytest xunit hook."""
     parts = fixture(tmp_path)
     root, _, _, capture, _, _, _, model = parts
     requirements = json.loads((root / "navigation-requirements.json").read_text())
@@ -107,7 +108,7 @@ def run(parts, policy, **overrides):
 
 
 def test_ready_is_readonly_point_in_time_with_no_authority(tmp_path):
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     before = {
         str(p): (
             p.read_bytes() if p.is_file() else None,
@@ -168,7 +169,7 @@ def test_ready_is_readonly_point_in_time_with_no_authority(tmp_path):
     ],
 )
 def test_incomplete_or_unsafe_evidence_cannot_promote(tmp_path, fault):
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     model, capture = parts[-1], parts[3]
     quality = model.observations["localization_quality"][0]
     topic, node = next(iter(policy["costmaps"].items()))
@@ -250,14 +251,14 @@ def test_incomplete_or_unsafe_evidence_cannot_promote(tmp_path, fault):
 
 
 def test_policy_pin_is_independent(tmp_path):
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     root, request, inputs = pack(parts)
     with pytest.raises(ValueError, match="operator readiness policy"):
         review_sim_navigation_readiness(root, request, policy=policy, policy_hash="wrong", **inputs)
 
 
 def test_covariance_serialization_roundoff_is_not_sensor_uncertainty(tmp_path):
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     covariance = parts[-1].observations["localization_quality"][0]["covariance"]
     covariance[1] = -5.271526297516281e-6
     covariance[6] = -5.271526297516282e-6
@@ -268,7 +269,7 @@ def test_covariance_serialization_roundoff_is_not_sensor_uncertainty(tmp_path):
 def test_costmap_base_uses_original_fixed_transform(tmp_path, offset, expected):
     from rosclaw.connectors.ros.intelligence.system_model import Transform
 
-    parts, policy = setup(tmp_path)
+    parts, policy = navigation_fixture(tmp_path)
     model = parts[-1]
     edge = Transform(
         parent="chassis", child="nav_base", source="/tf_static", captured_at=NOW, static=True
